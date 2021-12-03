@@ -814,8 +814,10 @@ wchar_t *g_p_program = NULL;
 void python_test( char *argv[] ) {
   init_python3( argv );
 
-  call_python3_command( NULL );
-
+  call_python3_command( "from time import time,ctime\n"
+                      "print('Today is', ctime(time()))\n" );
+  call_python3_file( "adjust_camera_to_center.py");
+//  call_python3_file( "adjust_camera_to_front.py");
   end_python3();
 }
 
@@ -826,7 +828,11 @@ void init_python3 (char *argv[] ) {
       exit(1);
   }
   Py_SetProgramName(g_p_program);  /* optional but recommended */
+ 
   Py_Initialize();
+  printf( "Current folder has been appended to sys.path\n" );    
+  PyObject *sys_path = PySys_GetObject("path");
+  PyList_Append(sys_path, PyUnicode_FromString("/home/jetbot/deepstream_sdk_v4.0.2_jetson/sources/apps/sample_apps/deepstream-app"));
 }
 
 void end_python3 ( void ) {
@@ -837,8 +843,7 @@ void end_python3 ( void ) {
 
 void call_python3_command( char *p_command_string ) {
 
-  PyRun_SimpleString("from time import time,ctime\n"
-                      "print('Today is', ctime(time()))\n");
+  PyRun_SimpleString(p_command_string);
   return;
 }
 
@@ -849,7 +854,7 @@ void call_python3_file ( char *p_filename ) {
     fprintf(stderr, "Error: Could not open file '%s'\n", p_filename);    
     exit(1);
   }
-  
+ 
   if(PyRun_SimpleFile(fp, p_filename) == 0) {
     fprintf("Problem running script file '%s'\n", p_filename);
     exit(1);
