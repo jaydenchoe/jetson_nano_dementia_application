@@ -28,12 +28,18 @@
 #include <termios.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+// jayden.choe
+#define PY_SSIZE_T_CLEAN
+#include <Python.h>
 
 #define MAX_INSTANCES 128
 #define APP_TITLE "DeepStream"
 
 #define DEFAULT_X_WINDOW_WIDTH 1920
 #define DEFAULT_X_WINDOW_HEIGHT 1080
+
+// jayden.choe
+void call_python3 (char *argv[]);
 
 AppCtx *appCtx[MAX_INSTANCES];
 static guint cintr = FALSE;
@@ -559,6 +565,8 @@ main (int argc, char *argv[])
   GOptionGroup *group = NULL;
   GError *error = NULL;
   guint i;
+// jayden.choe
+  call_python3( argv );
 
   ctx = g_option_context_new ("Nvidia DeepStream Demo");
   group = g_option_group_new ("abc", NULL, NULL, NULL, NULL);
@@ -793,4 +801,23 @@ done:
   gst_deinit ();
 
   return return_value;
+}
+
+// jayden.choe
+void call_python3 ( char *argv[] ) {
+
+  wchar_t *program = Py_DecodeLocale(argv[0], NULL);
+  if (program == NULL) {
+      fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+      exit(1);
+  }
+  Py_SetProgramName(program);  /* optional but recommended */
+  Py_Initialize();
+  PyRun_SimpleString("from time import time,ctime\n"
+                      "print('Today is', ctime(time()))\n");
+  if (Py_FinalizeEx() < 0) {
+      exit(120);
+  }
+  PyMem_RawFree(program);
+  return;
 }
