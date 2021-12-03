@@ -39,7 +39,11 @@
 #define DEFAULT_X_WINDOW_HEIGHT 1080
 
 // jayden.choe
-void call_python3 (char *argv[]);
+void python_test(char *argv[]);
+void init_python3 (char *argv[] );
+void end_python3 ( void );
+void call_python3_command( char *p_command_string );
+void call_python3_file ( char *p_filename );
 
 AppCtx *appCtx[MAX_INSTANCES];
 static guint cintr = FALSE;
@@ -565,8 +569,9 @@ main (int argc, char *argv[])
   GOptionGroup *group = NULL;
   GError *error = NULL;
   guint i;
+
 // jayden.choe
-  call_python3( argv );
+  python_test( argv );
 
   ctx = g_option_context_new ("Nvidia DeepStream Demo");
   group = g_option_group_new ("abc", NULL, NULL, NULL, NULL);
@@ -804,20 +809,50 @@ done:
 }
 
 // jayden.choe
-void call_python3 ( char *argv[] ) {
+wchar_t *g_p_program = NULL;
 
-  wchar_t *program = Py_DecodeLocale(argv[0], NULL);
-  if (program == NULL) {
+void python_test( char *argv[] ) {
+  init_python3( argv );
+
+  call_python3_command( NULL );
+
+  end_python3();
+}
+
+void init_python3 (char *argv[] ) {
+  g_p_program = Py_DecodeLocale(argv[0], NULL);
+  if (g_p_program == NULL) {
       fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
       exit(1);
   }
-  Py_SetProgramName(program);  /* optional but recommended */
+  Py_SetProgramName(g_p_program);  /* optional but recommended */
   Py_Initialize();
+}
+
+void end_python3 ( void ) {
+  if ( g_p_program != NULL ) {
+    PyMem_RawFree(g_p_program);
+  }
+}
+
+void call_python3_command( char *p_command_string ) {
+
   PyRun_SimpleString("from time import time,ctime\n"
                       "print('Today is', ctime(time()))\n");
-  if (Py_FinalizeEx() < 0) {
-      exit(120);
-  }
-  PyMem_RawFree(program);
   return;
+}
+
+void call_python3_file ( char *p_filename ) {
+  FILE *fp;
+  fp = fopen(p_filename, "r");
+  if(!fp) {
+    fprintf(stderr, "Error: Could not open file '%s'\n", p_filename);    
+    exit(1);
+  }
+  
+  if(PyRun_SimpleFile(fp, p_filename) == 0) {
+    fprintf("Problem running script file '%s'\n", p_filename);
+    exit(1);
+  }
+  fclose(fp);  
 }
