@@ -31,6 +31,13 @@
 // jayden.choe
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <semaphore.h>
+#include <sys/types.h> 
+#include <sys/stat.h> 
+#include <fcntl.h>
+////////////////////////////
 
 #define MAX_INSTANCES 128
 #define APP_TITLE "DeepStream"
@@ -39,11 +46,13 @@
 #define DEFAULT_X_WINDOW_HEIGHT 1080
 
 // jayden.choe
-void python_test(char *argv[]);
+void python_test( void );
 void init_python3 (char *argv[] );
 void end_python3 ( void );
 void call_python3_command( char *p_command_string );
 void call_python3_file ( char *p_filename );
+void *thread_a ( void* pArg );
+///////////////////////////////////////////
 
 AppCtx *appCtx[MAX_INSTANCES];
 static guint cintr = FALSE;
@@ -70,6 +79,12 @@ static gint source_ids[MAX_INSTANCES];
 static GThread *x_event_thread = NULL;
 static GMutex disp_lock;
 
+// jayden.choe
+static int s_b_terminate_thread = FALSE;
+static sem_t sem_one;
+static sem_t sem_two;
+static int s_human_x = 0;
+static int s_human_y = 0;
 
 GST_DEBUG_CATEGORY (NVDS_APP);
 
@@ -107,6 +122,11 @@ all_bbox_generated (AppCtx * appCtx, GstBuffer * buf,
   guint num_male = 0;
   guint num_female = 0;
   guint num_objects[128];
+  // jayden.choe
+  guint center_x = 0;
+  guint center_y = 0;
+
+ // g_print( "all_bbox_generated started\n" );
 
   memset (num_objects, 0, sizeof (num_objects));
 
@@ -121,6 +141,14 @@ all_bbox_generated (AppCtx * appCtx, GstBuffer * buf,
         if (obj->class_id >= 0 && obj->class_id < 128) {
           num_objects[obj->class_id]++;
         }
+          // jayden.choe
+        center_x = (obj->rect_params.left + obj->rect_params.width) / 2;
+        center_y = (obj->rect_params.top + obj->rect_params.height) / 2; 
+        g_printf( "c-id: %d, center x: %d, center y: %d\n", obj->class_id, center_x, center_y );
+        s_human_x = center_x;
+        s_human_y = center_y;
+        
+        // jayden.choe below condition never fit        
         if (appCtx->person_class_id > -1
             && obj->class_id == appCtx->person_class_id) {
           if (strstr (obj->text_params.display_text, "Man")) {
@@ -167,6 +195,8 @@ perf_cb (gpointer context, NvDsAppPerfStruct * str)
   guint i;
   AppCtx *appCtx = (AppCtx *) context;
   guint numf = (num_instances == 1) ? str->num_instances : num_instances;
+
+//  g_print( "perf_cb started\n" );
 
   g_mutex_lock (&fps_lock);
   if (num_instances > 1) {
@@ -513,6 +543,9 @@ static gboolean
 overlay_graphics (AppCtx * appCtx, GstBuffer * buf,
     NvDsBatchMeta * batch_meta, guint index)
 {
+
+  // g_print( "overlay_graphics started\n" );
+
   if (source_ids[index] == -1)
     return TRUE;
 
@@ -571,13 +604,31 @@ main (int argc, char *argv[])
   guint i;
 
 // jayden.choe
-  python_test( argv );
+  pthread_t tA;
+  int thread_err = 0;
+  sem_init(&sem_one, 0, 0);
+  sem_init(&sem_two, 0, 1);
+  
 
+
+// jayden.choe
+  init_python3( (void*) argv );
+  python_test( );
+  gpio_export(14);
+  gpio_set_outdir(14, 1);
+  gpio_set(14, 1);
+  
+  thread_err = pthread_create(&tA, NULL, thread_a, (void*)argv );
+  if (thread_err != 0) {
+    g_printf( "thread A create fail: %d\n", thread_err);
+  }
+////////////////////////////////////////////////////////////////
   ctx = g_option_context_new ("Nvidia DeepStream Demo");
   group = g_option_group_new ("abc", NULL, NULL, NULL, NULL);
   g_option_group_add_entries (group, entries);
 
   g_option_context_set_main_group (ctx, group);
+  
   g_option_context_add_group (ctx, gst_init_get_option_group ());
 
   GST_DEBUG_CATEGORY_INIT (NVDS_APP, "NVDS_APP", 0, NULL);
@@ -805,20 +856,50 @@ done:
 
   gst_deinit ();
 
+// jayden.choe
+  s_b_terminate_thread = TRUE;
+  thread_err = pthread_join(tA, NULL);
+  if ( thread_err != 0) {
+    g_print("thread A Join fail : %d\n", thread_err);
+  }
+
+  sem_destroy(&sem_one);
+  sem_destroy(&sem_two);
+  end_python3();
+//////////////////////////////////////////////
   return return_value;
 }
 
 // jayden.choe
 wchar_t *g_p_program = NULL;
 
-void python_test( char *argv[] ) {
-  init_python3( argv );
+void python_test( void ) {
+
 
   call_python3_command( "from time import time,ctime\n"
                       "print('Today is', ctime(time()))\n" );
-  call_python3_file( "adjust_camera_to_center.py");
-//  call_python3_file( "adjust_camera_to_front.py");
-  end_python3();
+  //call_python3_file( "adjust_camera_to_center.py");
+//  call_python3_command_camera_to_center();
+   call_python3_command_camera_to_front();
+   call_python3_command_3beep();
+   call_python3_command_move_down();
+ //  call_python3_command_move_down();
+ //  call_python3_command_move_down();
+// call_python3_command_move_down();
+ // call_python3_file( "adjust_camera_to_front.py");
+ // call_python3_command_move_forward();
+ // call_python3_command_move_backward();
+ // call_python3_command_move_right();
+ // call_python3_command_move_right();
+ // call_python3_command_move_forward();
+  //call_python3_command_move_left();
+ // call_python3_command_move_forward();
+ // call_python3_command_move_right();
+ // call_python3_command_move_forward();
+ // call_python3_command_move_left();
+ // call_python3_command_move_forward();
+ 
+
 }
 
 void init_python3 (char *argv[] ) {
@@ -830,15 +911,116 @@ void init_python3 (char *argv[] ) {
   Py_SetProgramName(g_p_program);  /* optional but recommended */
  
   Py_Initialize();
-  printf( "Current folder has been appended to sys.path\n" );    
+  g_printf( "Current folder has been appended to sys.path\n" );    
   PyObject *sys_path = PySys_GetObject("path");
   PyList_Append(sys_path, PyUnicode_FromString("/home/jetbot/deepstream_sdk_v4.0.2_jetson/sources/apps/sample_apps/deepstream-app"));
+  PyList_Append(sys_path, PyUnicode_FromString("/home/jetbot/yahboom-jetbot"));
 }
 
 void end_python3 ( void ) {
+  g_printf ( "end_python3\n");
   if ( g_p_program != NULL ) {
     PyMem_RawFree(g_p_program);
   }
+}
+
+void call_python3_command_camera_to_center( void ) {
+  PyRun_SimpleString( "from servoserial import ServoSerial\n"
+                      "servo_device = ServoSerial()\n"
+                      "servo_device.Servo_serial_double_control(1, 2100, 2, 2048)\n");  
+}
+
+void call_python3_command_camera_to_front( void ) {
+  PyRun_SimpleString( "from servoserial import ServoSerial\n"
+                      "servo_device = ServoSerial()\n"
+                      "servo_device.Servo_serial_double_control(1, 2100, 2, 1500)\n");  
+}
+
+void call_python3_command_move_up( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"
+                      "robot = Robot()\n"
+                      "robot.up(1)\n"
+                      "time.sleep(1.0)\n"
+                      "robot.vertical_motors_stop()" );  
+}
+
+void call_python3_command_move_down( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"  
+                      "robot = Robot()\n"
+                      "robot.down(1)\n"
+                      "time.sleep(1.0)\n"
+                      "robot.vertical_motors_stop()" );  
+}
+
+void call_python3_command_move_forward( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"
+                      "robot = Robot()\n"
+                      "robot.forward(0.8)\n"
+                      "time.sleep(0.5)\n"
+                      "robot.stop()\n" );  
+}
+
+void call_python3_command_move_backward( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"
+                      "robot = Robot()\n"
+                      "robot.backward(0.8)\n"
+                      "time.sleep(0.5)\n"
+                      "robot.stop()\n" );  
+}
+
+void call_python3_command_move_left( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"
+                      "robot = Robot()\n"  
+                      "robot.left(0.7)\n"
+                      "time.sleep(0.5)\n"
+                      "robot.stop()\n" );  
+}
+
+void call_python3_command_move_right( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"
+                      "robot = Robot()\n"  
+                      "robot.right(0.5)\n"
+                      "time.sleep(0.5)\n"
+                      "robot.stop()\n" );  
+}
+
+void call_python3_command_move_stop( void ) {
+  PyRun_SimpleString( "from jetbot import Robot\n"
+                      "import time\n"
+                      "robot = Robot()\n"
+                      "robot.stop()\n" );  
+}
+
+void call_python3_command_sleep( void ) {
+  PyRun_SimpleString( "import time\n"
+                      "time.sleep(0.5)\n" );
+}
+
+void call_python3_command_3beep( void ) {
+  PyRun_SimpleString( "import RPi.GPIO as GPIO\n"
+                      "import time\n"
+                      "BEEP_pin = 6\n"
+                      "GPIO.setmode(GPIO.BCM)\n" 
+                      "GPIO.setup(BEEP_pin, GPIO.OUT, initial=GPIO.LOW)\n"
+                      "GPIO.output(BEEP_pin, GPIO.HIGH)\n"
+                      "time.sleep(0.1)\n"
+                      "GPIO.output(BEEP_pin, GPIO.LOW)\n"
+                      "time.sleep(0.2)\n"
+                      "GPIO.output(BEEP_pin, GPIO.HIGH)\n"
+                      "time.sleep(0.1)\n"
+                      "GPIO.output(BEEP_pin, GPIO.LOW)\n"
+                      "time.sleep(0.2)\n"
+                      "GPIO.output(BEEP_pin, GPIO.HIGH)\n"
+                      "time.sleep(0.1)\n"
+                      "GPIO.output(BEEP_pin, GPIO.LOW)\n"
+                      "time.sleep(0.2)\n"
+                      );
 }
 
 void call_python3_command( char *p_command_string ) {
@@ -848,16 +1030,172 @@ void call_python3_command( char *p_command_string ) {
 }
 
 void call_python3_file ( char *p_filename ) {
-  FILE *fp;
-  fp = fopen(p_filename, "r");
+  PyObject *obj = Py_BuildValue("s", p_filename );
+  FILE *fp = _Py_fopen_obj(obj, "r+");
   if(!fp) {
     fprintf(stderr, "Error: Could not open file '%s'\n", p_filename);    
     exit(1);
   }
  
+  g_printf( "PyRun_SimpleFile\n");
   if(PyRun_SimpleFile(fp, p_filename) == 0) {
-    fprintf("Problem running script file '%s'\n", p_filename);
+    g_printf("Problem running script file '%s'\n", p_filename);
     exit(1);
   }
+  g_printf ( "fclose\n");
   fclose(fp);  
+}
+
+int gpio_export(int gpio)
+{
+ int fd = 0;
+ int len = 0;
+ char buf[64] = { 0, };
+
+  len = snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d", gpio);
+ if (0 == access(buf, F_OK))
+ {
+ return 0;
+ }
+
+  fd = open("/sys/class/gpio/export", O_WRONLY);
+ if (fd < 0)
+ {
+ return -1;
+ }
+
+  len = snprintf(buf, sizeof(buf), "%d", gpio);
+ write(fd, buf, len);
+ close(fd);
+
+  return 0;
+}
+
+int gpio_set_outdir(int gpio, int isout)
+{
+      int fd = 0;
+      char buf[64] = { 0, };
+
+      snprintf(buf, sizeof(buf), "/sys/class/gpio/gpio%d/direction", gpio);
+      fd = open(buf, O_WRONLY);
+      if (fd < 0)
+      {
+            return -1;
+      }
+     
+      if (isout)
+      {
+            write(fd, "out", 3);
+      }
+      else
+      {
+            write(fd, "in", 3);
+      }
+
+      close(fd);
+
+      return 0;
+}
+
+int gpio_set(int gpio, int level)
+{
+      int fd;
+      char buf[64] = { 0, };
+      if (gpio <= 0) return -1;
+
+      sprintf(buf, "/sys/class/gpio/gpio%d/value", gpio);
+      fd = open(buf, O_WRONLY);
+      if (fd < 0)
+      {
+            return -1;
+      }
+
+      if (level == 1)
+            write(fd, "1", 1);
+      else
+            write(fd, "0", 1);
+
+      close(fd);
+
+      return 1;
+}
+
+int gpio_get(int gpio)
+{
+      int fd;
+      char buf[64] = { 0, };
+      if (gpio <= 0) return -1;
+
+      sprintf(buf, "/sys/class/gpio/gpio%d/value", gpio);
+      fd = open(buf, O_RDONLY);
+      if (fd < 0)
+      {
+            return -1;
+      }
+
+      read(fd, buf, 1);
+      close(fd);
+
+      if (buf[0] != '0')
+            return 1;
+     
+      return 0;
+}
+
+void *thread_a ( void* p_arg ) {
+  int human_x = 0;
+  int human_y = 0;
+  int move_count = 0;
+
+  g_printf ( "thread_a: started\n");
+
+  g_printf ( "thread_a: going into while\n");
+
+  while ( s_b_terminate_thread == FALSE ) {
+    call_python3_command_sleep();
+    if ( human_x == s_human_x && human_y == s_human_y ) {
+      continue;
+    }
+    human_x = s_human_x;
+    human_y = s_human_y;
+  // invalidate values if wrong or broken value has come.  
+    if ( human_x == -1 || human_x < 150 || 650 < human_x ) {
+      human_x = -1;
+    }
+    if ( human_y == -1 || human_y < 150 || 400 < human_y) {
+      human_y = -1;
+    }
+  // devide x segments to 4, 100~299, 300~399, 400~499, 500~600
+    if ( 0 < human_x && human_x <= 299 ) {
+        g_printf ( "thread_a: go left and forward\n");
+        // go left and forward
+        call_python3_command_move_left();
+        call_python3_command_move_forward();
+        move_count++;
+    }
+    if ( 300 < human_x && human_x <= 399 ) {
+        g_printf ( "thread_a: go forward\n");
+        call_python3_command_move_forward();
+        move_count++;
+    }
+    if ( 400 < human_x && human_x <= 499 ) {
+         g_printf ( "thread_a: go forward\n");
+        call_python3_command_move_forward();
+        move_count++;
+    }
+    if ( 500 < human_x && human_x <= 650 ) {
+         g_printf ( "thread_a: go righ and forward\n");
+        call_python3_command_move_right();
+        call_python3_command_move_forward();
+        move_count++;
+    }    
+    if ( 10 <= move_count ) {
+      call_python3_command_move_up();
+      gpio_set(14, 0);
+      g_printf( "thread_a: gpio 14 set to 1. read value: %d\n", gpio_get(14));
+      g_printf( "thread_a: move count is over. exit loop for safety");
+      break;
+    }
+  }
+    g_printf ( "thread_a: ended\n");
 }

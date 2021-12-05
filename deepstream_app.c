@@ -557,6 +557,9 @@ gie_processing_done_buf_prob (GstPad * pad, GstPadProbeInfo * info,
 static GstPadProbeReturn
 analytics_done_buf_prob (GstPad * pad, GstPadProbeInfo * info, gpointer u_data)
 {
+
+  // g_printf( "analytics_done_buf_prob\n" );
+
   NvDsInstanceBin *bin = (NvDsInstanceBin *) u_data;
   guint index = bin->index;
   AppCtx *appCtx = bin->appCtx;
